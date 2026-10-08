@@ -25,3 +25,7 @@ backend/scripts/_archive/
 .DS_Store
 Thumbs.db
 desktop.ini
+# 本地文档（不进仓库）
+面试讲稿.md
+面试讲稿-最终版.md
+项目目录详解.md
