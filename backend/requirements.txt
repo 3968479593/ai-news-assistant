@@ -1,0 +1,20 @@
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+sqlalchemy>=2.0.0
+aiosqlite>=0.20.0
+chromadb>=0.5.0
+torch>=2.0.0
+transformers>=4.40.0
+langchain>=0.3.0
+langchain-openai>=0.2.0
+langgraph>=0.2.0
+rank-bm25>=0.2.2
+feedparser>=6.0.0
+httpx>=0.27.0
+python-multipart>=0.0.5
+tqdm>=4.60.0
+python-dotenv>=1.0.0
+# 说明：嵌入/重排使用 transformers 原生加载 BGE-M3 模型（app/core/embedding.py、reranker.py），
+# 不需要 sentence-transformers / FlagEmbedding（本机安全策略会阻止其 DLL，且功能等价）。

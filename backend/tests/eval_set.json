@@ -1,0 +1,77 @@
+[
+  {
+    "question": "英特尔CEO陈立武对马斯克的Terafab芯片项目是什么态度？",
+    "category": "科技",
+    "expected_titles": ["英特尔 CEO 陈立武：将继续参与马斯克 Terafab 芯片项目"]
+  },
+  {
+    "question": "华为徐直军说昇腾在中国市场的份额如何？",
+    "category": "科技",
+    "expected_titles": ["华为徐直军：昇腾在中国市场份额已超英伟达，950 超节点国内都不够用、没有计划全面出海"]
+  },
+  {
+    "question": "三星2026年第三季度营业利润预期如何？增长主要由什么驱动？",
+    "category": "科技",
+    "expected_titles": ["三星 2026 Q3 营业利润预计同比增长近 9 倍，存储涨价放缓引担忧"]
+  },
+  {
+    "question": "内存持续短缺的背景下，AMD CEO苏姿丰与三星芯片部门有什么互动？",
+    "category": "科技",
+    "expected_titles": ["内存持续短缺之际，AMD CEO 苏姿丰将与三星芯片部门负责人会面"]
+  },
+  {
+    "question": "“AI教父”辛顿对AI行业监管提出了什么具体建议？",
+    "category": "科技",
+    "expected_titles": ["“AI 教父”辛顿提议 AI 行业建立 FDA 式审批机制：模型推出前需通过安全审核"]
+  },
+  {
+    "question": "OpenAI为ChatGPT新增了什么安全功能？针对哪类用户？",
+    "category": "科技",
+    "expected_titles": ["OpenAI 为 ChatGPT 新增自动年龄检测，未满 18 岁用户将自动开启青少年模式"]
+  },
+  {
+    "question": "微软Surface Laptop Ultra笔记本有哪些亮点配置？",
+    "category": "科技",
+    "expected_titles": ["微软 Surface Laptop Ultra 笔记本规格曝光：最高 128GB 内存，面向 AI 开发"]
+  },
+  {
+    "question": "郭台铭为什么能重回中国台湾首富宝座？",
+    "category": "科技",
+    "expected_titles": ["半年净利暴增96%，重回中国台湾首富宝座，郭台铭靠AI赚翻了"]
+  },
+  {
+    "question": "DeepSeek与华为昇腾在算子方面有什么合作？",
+    "category": "科技",
+    "expected_titles": ["DeepSeek 开源算子工具大礼包，联手华为昇腾，手撕 CUDA 绑定！"]
+  },
+  {
+    "question": "9月末我国外汇储备规模是多少亿美元？",
+    "category": "商业财经",
+    "expected_titles": ["9月末我国外汇储备为34003亿美元", "9月末中国外汇储备为34003亿美元"]
+  },
+  {
+    "question": "世界银行对东亚和太平洋地区2026年经济增速预测有什么调整？",
+    "category": "商业财经",
+    "expected_titles": ["世界银行上调东亚和太平洋地区2026年经济增速预测"]
+  },
+  {
+    "question": "我国计划投入多少资金建设新型电网？",
+    "category": "商业财经",
+    "expected_titles": ["我国将投入超5万亿元建设新型电网 这网新在哪儿？"]
+  },
+  {
+    "question": "韩国散户押注三星和SK海力士相关杠杆ETF，结果如何？",
+    "category": "商业财经",
+    "expected_titles": ["韩国散户押注三星、SK 海力士相关杠杆 ETF，数月巨亏 2.3 万亿韩元"]
+  },
+  {
+    "question": "韩国前总统尹锡悦涉嫌违反《政治资金法》一案二审结果是什么？",
+    "category": "国际",
+    "expected_titles": ["韩国前总统尹锡悦涉嫌违反《政治资金法》案二审被判无罪"]
+  },
+  {
+    "question": "美国最新披露的对伊朗战损数据是多少？",
+    "category": "国际",
+    "expected_titles": ["美报告披露最新对伊战损：损失81架军机，含12架F-15E战机"]
+  }
+]

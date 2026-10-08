@@ -1,0 +1,27 @@
+# ===== 密钥（绝不能提交） =====
+backend/.env
+
+# ===== 运行数据（news.db / 会话 / 评测结果 / 日志 / chroma 索引 / 原始抓取） =====
+backend/data/
+backend/data/*
+!backend/data/ingest_filter.json
+!backend/data/.gitkeep
+
+# ===== 本地模型权重（可重新下载） =====
+backend/models/
+
+# ===== 前端依赖与构建产物（npm install / npm run build 生成） =====
+frontend/node_modules/
+frontend/dist/
+
+# ===== Python 缓存 =====
+__pycache__/
+*.pyc
+
+# ===== 一次性开发脚本归档（backend/scripts/_archive/，可复用但不再维护） =====
+backend/scripts/_archive/
+
+# ===== 系统文件 =====
+.DS_Store
+Thumbs.db
+desktop.ini
