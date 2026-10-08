@@ -92,7 +92,3 @@ frontend/
 | `NEWS_SOURCES` | 7 个稳定 RSS 源（量子位/IT之家/钛媒体/雷峰网 + 中新网 财经/国际/全站） |
 | `NEWS_MAX_ITEMS` / `NEWS_RETENTION_DAYS` | 容量治理：150 条上限 / 7 天保留 |
 | `NEWS_REFRESH_ENABLED` | 每 6 小时自动刷新 |
-
-## 📄 License
-
-MIT
