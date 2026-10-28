@@ -108,12 +108,16 @@ async def chat_stream(req: ChatRequest):
     """
     session_id = req.session_id or memory.new_session_id()
     q_key = req.message.strip().lower()
-    cached = _cached_result(q_key)
+    # 深度思考开启时绕过缓存：用户要的是完整推理过程（thinking 事件），
+    # 缓存命中直接 done 会跳过 stream_ask，思考面板一片空白
+    cached = None if req.deep_think else _cached_result(q_key)
 
     def _sse(evt: str, payload: dict) -> str:
         return f"event: {evt}\ndata: {json.dumps(payload, ensure_ascii=False, default=str)}\n\n"
 
-    if cached:
+    # 深度思考模式跳过缓存：缓存命中只发一次 done（无思考、无流式），
+    # 深思考需要完整的 thinking 过程 + 逐字正文，必须每次走真实生成
+    if cached and not req.deep_think:
         async def gen_cached():
             yield _sse("done", {
                 "answer": cached["answer"],

@@ -9,6 +9,7 @@
 - 整个图最多 AGENT_MAX_STEPS 轮（审核回流上限）。
 """
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from typing_extensions import TypedDict
@@ -236,10 +237,11 @@ def _needs_outline(docs: list, question: str) -> bool:
     return any(w in q for w in ("总结", "分析", "对比", "梳理", "盘点", "综述", "影响", "原因", "为什么", "怎么", "详细", "进展", "介绍"))
 
 
-def _try_outline(base_prompt: str, question: str) -> str:
-    """第一步：让 LLM 先列提纲。失败/空提纲返回 ""，调用方回退单次写稿。"""
+async def _try_outline(base_prompt: str, question: str) -> str:
+    """第一步：让 LLM 先列提纲（异步调用，避免同步 invoke 阻塞事件循环）。
+    失败/空提纲返回 ""，调用方回退单次写稿。"""
     try:
-        resp = get_chat_model().invoke([
+        resp = await get_chat_model().ainvoke([
             SystemMessage(content=base_prompt + _OUTLINE_STEP_PROMPT),
             HumanMessage(content=question),
         ])
@@ -296,11 +298,11 @@ async def write_node(state: AgentState) -> dict:
             )
             # 复杂场景两步化：先列提纲再成文（提纲失败回退单次，不影响可用性）
             if _needs_outline(docs, question):
-                outline = _try_outline(prompt, question)
+                outline = await _try_outline(prompt, question)
                 if outline:
                     prompt += _WRITE_STEP_PROMPT.format(outline=outline)
                     steps.append(f"写稿Agent: 先列提纲（{len(docs)}条资料）再成文")
-            resp = get_chat_model().invoke([
+            resp = await get_chat_model().ainvoke([
                 SystemMessage(content=prompt),
                 HumanMessage(content=question),
             ])
@@ -385,7 +387,7 @@ async def chat_node(state: AgentState) -> dict:
             history = state.get("history") or ""
             if history:
                 system += "\n\n【对话历史】保持连贯：\n" + history
-            resp = get_chat_model().invoke([
+            resp = await get_chat_model().ainvoke([
                 SystemMessage(content=system),
                 HumanMessage(content=question),
             ])
@@ -530,19 +532,33 @@ async def stream_ask(question: str, history: str = "", memory: str = "", search_
         # ---- 检索 Agent（rag → 按需 live，与主图同决策） ----
         yield ("status", {"stage": "retrieving", "detail": "正在检索新闻库…"})
         # top_k=8：前 5 条用于引用回答，后 3 条留作「相关新闻推荐」
-        docs = await retrieve_multi(query, top_k=8, category=_valid_category(category))
-        steps.append(f"检索Agent: 库内检索(领域={_valid_category(category) or '全部'}) 命中{len(docs)}条")
-        if not docs or route == "live":
-            yield ("status", {"stage": "retrieving", "detail": "正在补充实时新闻…"})
-            live_docs = await fetch_live(query)
-            merged = list(docs)
-            seen = {d.get("url") for d in merged}
+        if route == "live":
+            # live 路由：库内检索与实时抓取都要做，并行执行省一次串行等待
+            yield ("status", {"stage": "retrieving", "detail": "正在检索新闻库并抓取实时新闻…"})
+            rag_docs, live_docs = await asyncio.gather(
+                retrieve_multi(query, top_k=8, category=_valid_category(category)),
+                fetch_live(query),
+            )
+            docs = list(rag_docs)
+            seen = {d.get("url") for d in docs}
             for d in live_docs:
                 if d.get("url") not in seen:
-                    merged.append(d)
+                    docs.append(d)
                     seen.add(d.get("url"))
-            steps.append(f"检索Agent: 实时抓取 补充{len(merged) - len(docs)}条")
-            docs = merged
+            steps.append(f"检索Agent: 库内检索(领域={_valid_category(category) or '全部'}) 命中{len(rag_docs)}条，并行实时抓取{len(live_docs)}条")
+        else:
+            docs = await retrieve_multi(query, top_k=8, category=_valid_category(category))
+            steps.append(f"检索Agent: 库内检索(领域={_valid_category(category) or '全部'}) 命中{len(docs)}条")
+            if not docs:
+                yield ("status", {"stage": "retrieving", "detail": "正在补充实时新闻…"})
+                live_docs = await fetch_live(query)
+                docs = list(docs)
+                seen = {d.get("url") for d in docs}
+                for d in live_docs:
+                    if d.get("url") not in seen:
+                        docs.append(d)
+                        seen.add(d.get("url"))
+                steps.append(f"检索Agent: 实时抓取 补充{len(live_docs)}条")
 
         if not docs:
             answer = "检索到的新闻资料中未找到相关信息，可换个问法，或问『XX 最新消息』触发实时抓取。"
@@ -596,7 +612,7 @@ async def stream_ask(question: str, history: str = "", memory: str = "", search_
                         # 复杂场景两步化：先列提纲（非流式、约 1-2s），再流式成文；简单问题直接单次
                         if _needs_outline(docs, question):
                             yield ("status", {"stage": "writing", "detail": "正在组织回答思路…"})
-                            outline = _try_outline(prompt, question)
+                            outline = await _try_outline(prompt, question)
                             if outline:
                                 prompt += _WRITE_STEP_PROMPT.format(outline=outline)
                                 steps.append("写稿Agent: 先列提纲再流式成文")

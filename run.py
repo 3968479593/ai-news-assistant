@@ -129,8 +129,8 @@ def resolve_python() -> tuple[list[str], str]:
     return [sys.executable], f"{sys.version_info.major}.{sys.version_info.minor}"
 
 
-def check_env() -> tuple[bool, list[str], str]:
-    """自检：返回 (是否通过, 问题列表, 解释器版本)。"""
+def check_env() -> tuple[bool, list[str], str, list[str]]:
+    """自检：返回 (是否通过, 问题列表, 解释器版本, 解释器命令)。"""
     issues: list[str] = []
     py_cmd, ver = resolve_python()
 
@@ -146,7 +146,7 @@ def check_env() -> tuple[bool, list[str], str]:
     if not os.path.isdir(os.path.join(MODEL_DIR, "bge-m3")) or not os.path.isdir(os.path.join(MODEL_DIR, "bge-reranker-v2-m3")):
         issues.append("本地模型缺失（backend/models/BAAI/），服务仍可启动但嵌入/精排不可用，请运行 backend/scripts/download_models.py")
 
-    return (not issues), issues, ver
+    return (not issues), issues, ver, py_cmd
 
 
 # ---------- 停止 ----------
@@ -174,7 +174,7 @@ def main() -> None:
 
     if "--check" in args:
         log("检查运行环境（Python 版本 + 依赖 + 模型）...")
-        ok, issues, ver = check_env()
+        ok, issues, ver, _ = check_env()
         if ok:
             log(f"✅ 环境正常（Python {ver}，依赖与模型齐全）")
         else:
@@ -199,7 +199,7 @@ def main() -> None:
 
     # 3) 环境自检
     log("检查运行环境（Python 版本 + 依赖 + 模型）...")
-    ok, issues, ver = check_env()
+    ok, issues, ver, py_cmd = check_env()
     if not ok:
         for i in issues:
             log(f"  ⚠️ {i}")

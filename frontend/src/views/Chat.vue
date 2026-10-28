@@ -33,18 +33,21 @@
         </div>
       </div>
       <div class="chat-list" ref="listRef">
-        <div v-for="(m, i) in messages" :key="i" class="msg-row" :class="m.role">
-          <div class="msg-avatar">{{ m.role === 'user' ? '🧑' : '🤖' }}</div>
+        <template v-for="(m, i) in messages" :key="i">
+          <div v-if="m.role !== 'assistant' || m.content || m.thinking || m._pending" class="msg-row" :class="m.role">
+            <div class="msg-avatar">{{ m.role === 'user' ? '🧑' : '🤖' }}</div>
           <div class="msg-body">
+            <!-- 等待期占位：发问后立即显示检索状态，绝不空白 -->
+            <div v-if="!m.content && !m.thinking && m._pending" class="msg-bubble typing">{{ m._statusText }}</div>
             <!-- 深度思考面板（生成中自动展开，完成后可点击展开/收起） -->
-            <div v-if="m.thinking" class="think-panel" :class="{ done: m._thinkingDone }">
+            <div v-if="m.thinking || m._thinkingStarted" class="think-panel" :class="{ done: m._thinkingDone }">
               <div class="think-head" @click="toggleThinkPanel(m)">
                 <span class="think-label">🧠 深度思考</span>
                 <span class="think-status">{{ !m._thinkingDone ? '思考中…' : (m._thinkingOpen ? '收起 ▲' : '展开 ▼') }}</span>
               </div>
               <div v-show="m._thinkingOpen" class="think-body">{{ m.thinking }}</div>
             </div>
-            <div class="msg-bubble" :class="{ streaming: loading && isLastAssistant(i) }">
+            <div v-if="m.content" class="msg-bubble" :class="{ streaming: loading && isLastAssistant(i) }">
               <div class="md-body" v-html="renderMd(m.content)"></div>
               <span v-if="loading && isLastAssistant(i)" class="type-cursor"></span>
               <div class="msg-tags" v-if="(m.route && m.route !== 'chat') || (m.category && m.category !== '综合')">
@@ -54,7 +57,7 @@
             </div>
             <div class="msg-actions">
               <button v-if="m.role === 'user'" class="act-btn" @click="recallMsg(i)" :disabled="busy" title="撤回这条消息及其后的对话">↩︎ 撤回</button>
-              <template v-if="m.role === 'assistant'">
+              <template v-if="m.role === 'assistant' && m.content">
                 <button class="act-btn" @click="copyMsg(m)" :title="m._copied ? '已复制' : '复制回答'">{{ m._copied ? '✅ 已复制' : '📋 复制' }}</button>
                 <button class="act-btn" @click="regenerate" :disabled="busy" title="重新生成回答">🔄 重新生成</button>
               </template>
@@ -78,13 +81,8 @@
               <div v-for="(t, k) in m.agent_trace" :key="k" class="trace-item">{{ t }}</div>
             </details>
           </div>
-        </div>
-        <div v-if="loading && thinkingText" class="msg-row assistant">
-          <div class="msg-avatar">🤖</div>
-          <div class="msg-body">
-            <div class="msg-bubble typing">{{ thinkingText }}</div>
           </div>
-        </div>
+        </template>
       </div>
 
       <div class="quick" v-if="messages.length <= 1">
@@ -107,7 +105,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
@@ -242,7 +240,20 @@ function routeLabel(route) {
 
 async function scrollBottom() {
   await nextTick()
+  // 再等一帧渲染，确保 v-html(marked) 内容落定后 scrollHeight 才是真实的，滚动才可靠
+  await new Promise(r => requestAnimationFrame(r))
   if (listRef.value) listRef.value.scrollTop = listRef.value.scrollHeight
+}
+
+// 用户上翻阅读时不强行拽回底部：距底 < 120px 视为"贴底"才自动跟随
+function nearBottom() {
+  const el = listRef.value
+  if (!el) return true
+  return el.scrollHeight - el.scrollTop - el.clientHeight < 120
+}
+
+async function scrollBottomIfPinned() {
+  if (nearBottom()) await scrollBottom()
 }
 
 async function copyMsg(m) {
@@ -292,10 +303,84 @@ async function send(text) {
   thinkingText.value = '正在检索新闻库…'
   await scrollBottom()
 
-  const msg = { role: 'assistant', content: '', thinking: '', _thinkingOpen: true, _thinkingDone: false, sources: [], related: [], route: '', category: '', agent_trace: [] }
+  // 必须用 reactive() 包装：msg 若只是普通对象字面量，push 进 messages 后模板渲染的是
+  // Vue 生成的代理，而代码里 msg.content/msg.thinking += 等修改直接落在原始对象上、
+  // 绕过 Proxy 的 set 拦截 —— Vue 收不到通知不重渲染，表现为"数据在涨、界面不动、
+  // 最后整段蹦出"。reactive 包装后 msg 本身就是代理，所有修改实时触发视图更新。
+  const msg = reactive({ role: 'assistant', content: '', thinking: '', _thinkingOpen: true, _thinkingDone: false, _thinkingStarted: false, sources: [], related: [], route: '', category: '', agent_trace: [], _pending: true, _statusText: '正在检索最新新闻…' })
   messages.value.push(msg)
   let full = ''
   let final = null
+  let shownLen = 0
+  // 打字机：按固定时间间隔逐字推进（约 40 字/秒），肉眼可见“一字一字”的打字效果。
+  // 用 setTimeout 而非 requestAnimationFrame：rAF 在页面未聚焦/后台标签会被浏览器暂停，
+  // 导致打字机不跑、等用户切回时一整段蹦出；setTimeout 后台也会节流运行，保证始终逐字。
+  const TYPE_INTERVAL = 25   // 每字间隔 ms
+  let typeTimer = null
+  let lastTypeTs = 0
+  const stepRender = () => {
+    typeTimer = null
+    const now = performance.now()
+    if (shownLen < full.length) {
+      if (now - lastTypeTs >= TYPE_INTERVAL) {
+        lastTypeTs = now
+        // 逐字观感 + 积压自适应：积压 60 字以内一字一字（约 40 字/秒）；
+        // 积压大时按比例加速追平——LLM 出字（约 800 字/秒）远快于固定逐字时，
+        // 打字机会越落越远、结尾 waitDrain 超时整段蹦出，自适应可杜绝
+        const backlog = full.length - shownLen
+        shownLen = Math.min(full.length, shownLen + Math.max(1, Math.ceil(backlog / 60)))
+        msg.content = full.slice(0, shownLen)
+        scrollBottomIfPinned()
+      }
+      typeTimer = setTimeout(stepRender, TYPE_INTERVAL)
+    }
+  }
+  const onDelta = (p) => {
+    full += p.text || ''
+    if (!typeTimer) { lastTypeTs = 0; typeTimer = setTimeout(stepRender, TYPE_INTERVAL) }
+  }
+  const onDone = (p) => {
+    final = p
+    // 缓存命中场景：后端只发 done、无任何 delta，把 answer 倒入打字机缓冲逐字呈现，
+    // 避免 msg.content 整段赋值导致答案一次性蹦出
+    if (!full && p.answer) full = p.answer
+    if (!typeTimer && shownLen < full.length) { lastTypeTs = 0; typeTimer = setTimeout(stepRender, TYPE_INTERVAL) }
+  }
+  let thinkTimer = null
+  let thinkFull = ''
+  let thinkShown = 0
+  let lastThinkTs = 0
+  const thinkStep = () => {
+    thinkTimer = null
+    const now = performance.now()
+    if (thinkShown < thinkFull.length) {
+      if (now - lastThinkTs >= TYPE_INTERVAL) {
+        lastThinkTs = now
+        // 与正文同样的积压自适应，避免思考面板落后于正文流
+        const backlog = thinkFull.length - thinkShown
+        thinkShown = Math.min(thinkFull.length, thinkShown + Math.max(1, Math.ceil(backlog / 60)))
+        msg.thinking = thinkFull.slice(0, thinkShown)
+        scrollBottomIfPinned()
+      }
+      thinkTimer = setTimeout(thinkStep, TYPE_INTERVAL)
+    } else {
+      msg.thinking = thinkFull
+    }
+  }
+  const onThinking = (p) => {
+    thinkFull += p.text || ''
+    // 思考要点同样逐字推进，避免一次性蹦出
+    if (!thinkTimer) { lastThinkTs = 0; thinkTimer = setTimeout(thinkStep, TYPE_INTERVAL) }
+  }
+  // 等打字机追平已接收内容（自适应速率下通常 <1s），再应用 done 的最终信息，避免闪跳
+  const waitDrain = (capMs = 8000) => new Promise((resolve) => {
+    const start = performance.now()
+    const check = () => {
+      if (shownLen >= full.length || performance.now() - start > capMs) return resolve()
+      setTimeout(check, 50)
+    }
+    check()
+  })
   abortCtrl = new AbortController()
   try {
     const resp = await fetch('/api/chat/stream', {
@@ -316,7 +401,7 @@ async function send(text) {
       while ((idx = buf.indexOf('\n\n')) >= 0) {
         const raw = buf.slice(0, idx)
         buf = buf.slice(idx + 2)
-        handleEvent(raw, msg, (p) => { full += p.text || ''; msg.content = full }, (p) => { final = p })
+        handleEvent(raw, msg, onDelta, onDone, onThinking)
       }
     }
     // 处理 buf 里残留的所有事件
@@ -325,10 +410,13 @@ async function send(text) {
       const raw = idx >= 0 ? buf.slice(0, idx) : buf
       buf = idx >= 0 ? buf.slice(idx + 2) : ''
       if (!raw.trim()) break
-      handleEvent(raw, msg, (p) => { full += p.text || ''; msg.content = full }, (p) => { final = p })
+      handleEvent(raw, msg, onDelta, onDone, onThinking)
     }
+    // 等打字机平滑追平，再应用最终结果（sources/route 等元数据立即生效，文本不闪跳）
+    await waitDrain()
     if (final) {
-      msg.content = final.answer ?? full
+      // 正文已由打字机逐字渲染完整，done 的 answer 不再覆盖 content，避免打断逐字
+      // （缓存命中的 answer 已在 onDone 倒入打字机缓冲，此处 waitDrain 返回时已追平）
       msg.sources = final.sources || []
       msg.related = final.related || []
       msg.route = final.route || ''
@@ -338,20 +426,29 @@ async function send(text) {
         sessionId.value = final.session_id
         localStorage.setItem(SESSION_KEY, final.session_id)
       }
+    } else if (full) {
+      // 流意外结束（没收到 done）：补全已接收内容
+      msg.content = full
     }
     await scrollBottom()
   } catch (e) {
     if (e.name === 'AbortError') {
+      shownLen = full.length
       msg.content = full || '（已停止生成）'
     } else {
-      msg.content = `请求失败：${e.message}`
+      // 保留已生成的部分，追加失败提示（不再整段覆盖丢失内容）
+      msg.content = full ? `${full}\n\n（请求失败：${e.message}）` : `请求失败：${e.message}`
     }
   } finally {
+    if (typeTimer) clearTimeout(typeTimer)
+    if (thinkTimer) clearTimeout(thinkTimer)
     loading.value = false
     thinkingText.value = ''
     abortCtrl = null
+    if (shownLen < full.length) { shownLen = full.length; msg.content = full }
+    if (thinkShown < thinkFull.length) { thinkShown = thinkFull.length; msg.thinking = thinkFull }
     if (msg.thinking && !msg._thinkingDone) msg._thinkingDone = true
-    msg._thinkingOpen = false
+    // 保持思考面板展开（思考要点对用户可见），不强制收起
     await scrollBottom()
     try { localStorage.setItem(MSG_KEY, JSON.stringify(messages.value)) } catch { /* 超限忽略 */ }
     // 持久化会话 + 刷新左侧历史栏
@@ -361,32 +458,37 @@ async function send(text) {
 }
 
 // 统一 SSE 事件分发（供 send 主循环与残留缓冲共用）
-function handleEvent(raw, msg, onDelta, onDone) {
+function handleEvent(raw, msg, onDelta, onDone, onThinking) {
   const evt = (raw.match(/^event:\s*(.+)$/m) || [])[1]?.trim() || ''
   const data = (raw.match(/^data:\s*(.+)$/m) || [])[1]?.trim()
   if (!data) return
   let payload
   try { payload = JSON.parse(data) } catch (e) { console.warn('SSE parse fail:', evt, data.slice(0, 100)); return }
   if (evt === 'status') {
-    if (payload.stage === 'retrieving') thinkingText.value = payload.detail || '正在检索…'
-    else if (payload.stage === 'writing') thinkingText.value = ''
+    if (payload.stage === 'retrieving') msg._statusText = payload.detail || '正在检索最新新闻…'
+    else if (payload.stage === 'writing') msg._statusText = '正在生成回答…'
   } else if (evt === 'thinking_start') {
     thinkingText.value = ''
     msg.thinking = ''
     msg._thinkingOpen = true
     msg._thinkingDone = false
+    msg._thinkingStarted = true
+    msg._pending = false
   } else if (evt === 'thinking_delta') {
+    msg._pending = false
+    // 思考要点直接随 SSE 事件累积到面板（不依赖打字机 setTimeout，避免被浏览器节流而空白）
     msg.thinking += payload.text || ''
-    scrollBottom()
+    scrollBottomIfPinned()
   } else if (evt === 'thinking_end') {
     msg._thinkingDone = true
-    msg._thinkingOpen = false
+    // 思考结束不收起面板：保持展开让用户看到完整思考要点（可手动收起）
   } else if (evt === 'delta') {
     thinkingText.value = ''
-    onDelta(payload)
-    scrollBottom()
+    msg._pending = false
+    onDelta(payload) // 滚动由 stepRender 统一按贴底状态处理，不在此强拽
   } else if (evt === 'error') {
     thinkingText.value = ''
+    msg._pending = false
     msg.content = `请求出错了：${payload.detail || '未知错误'}，请重试`
   } else if (evt === 'done') {
     onDone(payload)
