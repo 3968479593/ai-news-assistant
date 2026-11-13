@@ -18,6 +18,15 @@ frontend/dist/
 __pycache__/
 *.pyc
 
+# ===== Python 虚拟环境（本地生成，不入库） =====
+backend/venv/
+venv/
+.venv/
+
+# ===== 日志与本地备份 =====
+*.log
+backend/.env.bak*
+
 # ===== 一次性开发脚本归档（backend/scripts/_archive/，可复用但不再维护） =====
 backend/scripts/_archive/
 
