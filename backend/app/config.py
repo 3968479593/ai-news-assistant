@@ -1,9 +1,33 @@
+from pathlib import Path
+
 from pydantic_settings import BaseSettings
+
+# backend/app/config.py → backend 目录：.env 与运行数据全部锚定在这里，不受启动目录影响
+_BACKEND_DIR = Path(__file__).resolve().parent.parent
+
+
+def _abs_path(value: str) -> str:
+    """相对路径锚定到 backend 目录。"""
+    p = Path(value)
+    if p.is_absolute():
+        return value
+    return str((_BACKEND_DIR / p).resolve())
+
+
+def _abs_db_url(url: str) -> str:
+    """sqlite:///./data/news.db → sqlite:///<backend 绝对路径>。"""
+    for marker in ("sqlite+aiosqlite:///", "sqlite:///"):
+        if url.startswith(marker):
+            raw = url[len(marker):]
+            if Path(raw).is_absolute():
+                return url
+            return marker + (_BACKEND_DIR / raw).resolve().as_posix()
+    return url
 
 
 class Settings(BaseSettings):
     APP_NAME: str = "AI新闻助手"
-    DEBUG: bool = True
+    DEBUG: bool = False
 
     # 数据库（SQLite 零配置；格式同 ai电商选品助手 的 database.py）
     DATABASE_URL: str = "sqlite+aiosqlite:///./data/news.db"
@@ -83,8 +107,14 @@ class Settings(BaseSettings):
         "生活": 0,
     }  # 每模块保留配额；前端已隐藏无源的体育/娱乐/健康/生活，配额置 0 防占库；未列模块默认 10
 
+    def model_post_init(self, __context) -> None:
+        """统一把相对路径转成基于 backend 目录的绝对路径（避免双套数据）。"""
+        self.DATABASE_URL = _abs_db_url(self.DATABASE_URL)
+        self.CHROMA_PERSIST_DIR = _abs_path(self.CHROMA_PERSIST_DIR)
+        self.MODEL_CACHE_DIR = _abs_path(self.MODEL_CACHE_DIR)
+
     class Config:
-        env_file = ".env"
+        env_file = str(_BACKEND_DIR / ".env")
         env_file_encoding = "utf-8"
 
 
